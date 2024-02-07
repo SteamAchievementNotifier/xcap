@@ -4,7 +4,7 @@ use std::{cmp::Ordering, ffi::c_void, mem, ptr};
 use windows::{
     core::{HSTRING, PCWSTR},
     Win32::{
-        Foundation::{BOOL, HMODULE, HWND, LPARAM, MAX_PATH, TRUE},
+        Foundation::{BOOL, HMODULE, HWND, LPARAM, MAX_PATH, RECT, TRUE},
         Graphics::{
             Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED},
             Gdi::{IsRectEmpty, MonitorFromWindow, MONITOR_DEFAULTTONEAREST},
@@ -15,20 +15,16 @@ use windows::{
             Threading::{GetCurrentProcessId, PROCESS_QUERY_LIMITED_INFORMATION},
         },
         UI::WindowsAndMessaging::{
-            EnumWindows, GetClassNameW, GetWindowInfo, GetWindowLongPtrW, GetWindowTextLengthW,
-            GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible,
-            IsZoomed, GWL_EXSTYLE, WINDOWINFO, WINDOW_EX_STYLE, WS_EX_TOOLWINDOW,
+            EnumWindows, GetClassNameW, GetWindowInfo, GetWindowLongPtrW, GetWindowRect,
+            GetWindowTextLengthW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
+            IsWindowVisible, IsZoomed, GWL_EXSTYLE, WINDOWINFO, WINDOW_EX_STYLE, WS_EX_TOOLWINDOW,
         },
     },
 };
 
 use crate::{error::XCapResult, platform::boxed::BoxProcessHandle};
 
-use super::{
-    capture::capture_window,
-    impl_monitor::ImplMonitor,
-    utils::{get_window_rect, wide_string_to_string},
-};
+use super::{capture::capture_window, impl_monitor::ImplMonitor, utils::wide_string_to_string};
 
 #[derive(Debug, Clone)]
 pub(crate) struct ImplWindow {
@@ -137,9 +133,12 @@ fn is_valid_window(hwnd: HWND) -> bool {
             return false;
         }
 
-        let is_rect_empty = get_window_rect(hwnd).is_ok_and(|rect| IsRectEmpty(&rect).as_bool());
+        let mut rect = RECT::default();
+        if GetWindowRect(hwnd, &mut rect).is_err() {
+            return false;
+        }
 
-        if is_rect_empty {
+        if IsRectEmpty(&rect).as_bool() {
             return false;
         }
     }
@@ -212,7 +211,7 @@ fn get_app_name(hwnd: HWND) -> XCapResult<String> {
             slice::from_raw_parts(lang_code_pages_ptr.cast(), lang_code_pages_length as usize);
 
         // 按照 keys 的顺序读取文件的属性值
-        // 优先读取 FileDescription
+        // 优先读取 ProductName
         let keys = [
             "FileDescription",
             "ProductName",
@@ -277,7 +276,7 @@ impl ImplWindow {
             let app_name = get_app_name(hwnd)?;
 
             let hmonitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-            let rc_window = window_info.rcWindow;
+            let rc_client = window_info.rcClient;
             let is_minimized = IsIconic(hwnd).as_bool();
             let is_maximized = IsZoomed(hwnd).as_bool();
 
@@ -288,10 +287,10 @@ impl ImplWindow {
                 title,
                 app_name,
                 current_monitor: ImplMonitor::new(hmonitor)?,
-                x: rc_window.left,
-                y: rc_window.top,
-                width: (rc_window.right - rc_window.left) as u32,
-                height: (rc_window.bottom - rc_window.top) as u32,
+                x: rc_client.left,
+                y: rc_client.top,
+                width: (rc_client.right - rc_client.left) as u32,
+                height: (rc_client.bottom - rc_client.top) as u32,
                 is_minimized,
                 is_maximized,
             })
@@ -318,7 +317,9 @@ impl ImplWindow {
 
 impl ImplWindow {
     pub fn capture_image(&self) -> XCapResult<RgbaImage> {
-        // TODO: 在win10之后，不同窗口有不同的dpi，所以可能存在截图不全或者截图有较大空白，实际窗口没有填充满图片
-        capture_window(self.hwnd, self.current_monitor.scale_factor)
+        let width = ((self.width as f32) * self.current_monitor.scale_factor) as i32;
+        let height = ((self.height as f32) * self.current_monitor.scale_factor) as i32;
+
+        capture_window(self.hwnd, self.x, self.y, width, height)
     }
 }

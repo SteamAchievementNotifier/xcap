@@ -11,7 +11,7 @@ keywords = ["screenshots", "screenshot", "screen", "capture"]
 
 [dependencies]
 anyhow = "1.0"
-display-info = "0.4"
+display-info = { git = "https://github.com/SteamAchievementNotifier/display-info.git" }
 image = "0.24"
 percent-encoding = "2.3"
 

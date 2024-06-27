@@ -19,7 +19,7 @@ percent-encoding = "2.3"
 core-graphics = "0.22"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-fxhash = "0.2"
+sfhash = "0.1.1"
 widestring = "1.0"
 windows = { version = "0.51", features = [
     "Win32_Foundation",
